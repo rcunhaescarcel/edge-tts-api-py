@@ -10,25 +10,14 @@ app = FastAPI()
 async def speak(
     text: str,
     voice: str = "pt-BR-AntonioNeural",
-    rate: str = "0%",
-    pitch: str = "0st"
+    rate: str = "+0%",      # velocidade: +0% por padrão
+    pitch: str = "+0Hz"     # tom: +0Hz por padrão
 ):
-    """
-    Gera um arquivo MP3 usando edge-tts CLI.
-
-    Query params:
-    - text:  texto a ser falado (obrigatório)
-    - voice: voz neural (padrão pt-BR-AntonioNeural)
-    - rate:  velocidade (+/- %, ex: +20%, -10%) — padrão 0%
-    - pitch: tom em semitons (+/- st, ex: +2st, -3st) — padrão 0st
-    """
     if not text:
         raise HTTPException(status_code=400, detail="O parâmetro 'text' é obrigatório.")
 
-    # Nome temporário único
     tmp_filename = f"/tmp/voice-{uuid.uuid4()}.mp3"
 
-    # Monta o comando da CLI edge-tts
     cmd = [
         "edge-tts",
         "--voice", voice,
@@ -38,18 +27,15 @@ async def speak(
         "--write-media", tmp_filename
     ]
 
-    # Executa o processo
     try:
         subprocess.run(cmd, check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
         detail = e.stderr.decode(errors="ignore")
         raise HTTPException(status_code=500, detail=f"Erro edge-tts: {detail}")
 
-    # Verifica se o arquivo foi gerado
     if not os.path.isfile(tmp_filename):
         raise HTTPException(status_code=500, detail="Não foi possível gerar o áudio.")
 
-    # Retorna o MP3 ao cliente
     return FileResponse(
         path=tmp_filename,
         media_type="audio/mpeg",
