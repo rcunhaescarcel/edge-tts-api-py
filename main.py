@@ -11,7 +11,7 @@ async def speak(text: str, voice: str = "pt-BR-AntonioNeural"):
         raise HTTPException(status_code=400, detail="Texto vazio.")
 
     try:
-        communicate = edge_tts.Communicate(text, voice)  # ⚠️ argumentos posicionais
+        communicate = edge_tts.Communicate(text, voice=voice)  # ⚠️ argumentos posicionais
         audio_bytes = b""
 
         async for chunk in communicate.stream():
