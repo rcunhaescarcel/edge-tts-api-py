@@ -1,8 +1,8 @@
 import uuid
-import subprocess
 import os
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
+import edge_tts
 
 app = FastAPI()
 
@@ -13,63 +13,52 @@ async def speak(
     voice: str = "pt-BR-AntonioNeural",
     rate: str = "+0%",
     pitch: str = "+0Hz",
-    format: str = "audio-16khz-128kbitrate-mono-mp3"
+    # este parâmetro agora só controla diretamente o formato saído
+    output_format: str = "audio-16khz-128kbitrate-mono-mp3"
 ):
-    """
-    Gera um MP3 usando edge-tts CLI no formato desejado (sem FFmpeg).
-    Query params:
-      - text:   texto a ser falado (obrigatório)
-      - voice:  voz neural (ex: pt-BR-AntonioNeural)
-      - rate:   velocidade (ex: +20%, -10%)
-      - pitch:  tom em Hz (ex: +100Hz, -50Hz)
-      - format: formato direto de saída (padrão MP3 mono 16kHz)
-    """
     if not text:
-        raise HTTPException(status_code=400, detail="O parâmetro 'text' é obrigatório.")
+        raise HTTPException(400, "O parâmetro 'text' é obrigatório.")
 
-    # Normaliza rate → [+|-]<número>%
+    # 1) normaliza rate → [+|-]número%
     r = rate.strip().rstrip("%").strip()
     if not r.startswith(("+", "-")):
         r = "+" + r
     rate_sanitized = r + "%"
 
-    # Normaliza pitch → [+|-]<número>Hz
+    # 2) normaliza pitch → [+|-]númeroHz
     p = pitch.strip().rstrip("Hz").strip()
     if not p.startswith(("+", "-")):
         p = "+" + p
     pitch_sanitized = p + "Hz"
 
-    # Nome temporário único
-    tmp_filename = f"/tmp/voice-{uuid.uuid4()}.mp3"
+    # 3) arquivo temporário
+    tmp = f"/tmp/voice-{uuid.uuid4()}.mp3"
 
-    # Monta comando edge-tts, incluindo --format para MP3 direto
-    cmd = [
-        "edge-tts",
-        f"--voice={voice}",
-        f"--text={text}",
-        f"--rate={rate_sanitized}",
-        f"--pitch={pitch_sanitized}",
-        f"--format={format}",
-        f"--write-media={tmp_filename}"
-    ]
+    # 4) configura o Communicate para gerar MP3 direto
+    communicator = edge_tts.Communicate(
+        text=text,
+        voice=voice,
+        rate=rate_sanitized,
+        pitch=pitch_sanitized,
+        format=output_format
+    )
 
-    # Executa o edge-tts
+    # 5) roda e salva
     try:
-        subprocess.run(cmd, check=True, capture_output=True)
-    except subprocess.CalledProcessError as e:
-        detail = e.stderr.decode(errors="ignore")
-        raise HTTPException(status_code=500, detail=f"Erro edge-tts: {detail}")
+        await communicator.save(tmp)
+    except Exception as e:
+        # se falhar, devolve o stderr ou mensagem de erro da lib
+        raise HTTPException(500, f"Erro edge-tts: {e}")
 
-    # Confere geração do arquivo
-    if not os.path.isfile(tmp_filename):
-        raise HTTPException(status_code=500, detail="Não foi possível gerar o áudio.")
+    if not os.path.isfile(tmp):
+        raise HTTPException(500, "Não foi possível gerar o áudio.")
 
-    # Agenda remoção do arquivo temporário após enviar
-    background_tasks.add_task(os.remove, tmp_filename)
+    # 6) agenda remoção do arquivo
+    background_tasks.add_task(os.remove, tmp)
 
-    # Retorna o MP3 ao cliente
+    # 7) retorna ao cliente
     return FileResponse(
-        path=tmp_filename,
+        path=tmp,
         media_type="audio/mpeg",
         filename="voz.mp3",
         headers={"Content-Disposition": 'inline; filename="voz.mp3"'}
