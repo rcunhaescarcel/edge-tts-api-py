@@ -11,54 +11,55 @@ async def speak(
     text: str,
     background_tasks: BackgroundTasks,
     voice: str = "pt-BR-AntonioNeural",
-    rate: str = "+0%",
-    pitch: str = "+0Hz",
-    # este parâmetro agora só controla diretamente o formato saído
-    output_format: str = "audio-16khz-128kbitrate-mono-mp3"
+    rate: str  = "+0%",
+    pitch: str = "+0Hz"
 ):
+    """
+    → /speak?text=Olá&voice=pt-BR-AntonioNeural&rate=-10%&pitch=+20Hz
+    """
     if not text:
         raise HTTPException(400, "O parâmetro 'text' é obrigatório.")
 
-    # 1) normaliza rate → [+|-]número%
+    # 1) Sanitiza rate: assegura [+|-]número%
     r = rate.strip().rstrip("%").strip()
     if not r.startswith(("+", "-")):
         r = "+" + r
     rate_sanitized = r + "%"
 
-    # 2) normaliza pitch → [+|-]númeroHz
+    # 2) Sanitiza pitch: assegura [+|-]númeroHz
     p = pitch.strip().rstrip("Hz").strip()
     if not p.startswith(("+", "-")):
         p = "+" + p
     pitch_sanitized = p + "Hz"
 
-    # 3) arquivo temporário
-    tmp = f"/tmp/voice-{uuid.uuid4()}.mp3"
+    # 3) Caminho temporário para o MP3
+    tmp_file = f"/tmp/voice-{uuid.uuid4()}.mp3"
 
-    # 4) configura o Communicate para gerar MP3 direto
-    communicator = edge_tts.Communicate(
-        text=text,
-        voice=voice,
-        rate=rate_sanitized,
-        pitch=pitch_sanitized,
-        format=output_format
-    )
-
-    # 5) roda e salva
+    # 4) Gera o MP3 diretamente pela lib edge-tts (sem CLI, sem FFmpeg)
     try:
-        await communicator.save(tmp)
+        # text, voice são posicionais; rate e pitch são keywords
+        communicate = edge_tts.Communicate(
+            text,
+            voice,
+            rate=rate_sanitized,
+            pitch=pitch_sanitized
+        )
+        # salva direto no tmp_file em MP3
+        await communicate.save(tmp_file)
     except Exception as e:
-        # se falhar, devolve o stderr ou mensagem de erro da lib
+        # devolve mensagem de erro vinda da lib
         raise HTTPException(500, f"Erro edge-tts: {e}")
 
-    if not os.path.isfile(tmp):
+    # 5) Confere se o arquivo foi gerado
+    if not os.path.isfile(tmp_file):
         raise HTTPException(500, "Não foi possível gerar o áudio.")
 
-    # 6) agenda remoção do arquivo
-    background_tasks.add_task(os.remove, tmp)
+    # 6) Agenda remoção do temp file depois do envio
+    background_tasks.add_task(os.remove, tmp_file)
 
-    # 7) retorna ao cliente
+    # 7) Retorna o MP3 ao cliente
     return FileResponse(
-        path=tmp,
+        path=tmp_file,
         media_type="audio/mpeg",
         filename="voz.mp3",
         headers={"Content-Disposition": 'inline; filename="voz.mp3"'}
